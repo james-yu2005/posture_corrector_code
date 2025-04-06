@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Posture Detector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="text-center space-y-6">
+      <h1 class="text-3xl font-bold text-gray-800">Posture Detection</h1>
+
+      <!-- Video Stream -->
+      <img
+        id="videoContainer"
+        width="640"
+        height="480"
+        src=""
+        class="mx-auto border-4 border-gray-800 rounded-lg hidden"
+      />
+
+      <p id="status" class="text-lg font-semibold text-gray-700">
+        Waiting for posture analysis...
+      </p>
+
+      <!-- Buttons -->
+      <div class="space-x-4">
+        <button
+          id="startButton"
+          class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded shadow"
+        >
+          Start
+        </button>
+        <button
+          id="stopButton"
+          disabled
+          class="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded shadow disabled:opacity-50"
+        >
+          Stop
+        </button>
+        <button
+          id="recalibrateButton"
+          class="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-2 rounded shadow"
+        >
+          Recalibrate
+        </button>
+      </div>
+    </div>
+
+    <script>
+      const startButton = document.getElementById("startButton");
+      const stopButton = document.getElementById("stopButton");
+      const recalibrateButton = document.getElementById("recalibrateButton");
+      const statusDiv = document.getElementById("status");
+      const video = document.getElementById("videoContainer");
+
+      startButton.addEventListener("click", async () => {
+        startButton.disabled = true;
+        stopButton.disabled = false;
+        video.src = "/video_feed";
+        video.classList.remove("hidden");
+        statusDiv.textContent = "Monitoring posture...";
+
+        const response = await fetch("/check_posture", { method: "POST" });
+        const result = await response.json();
+        statusDiv.textContent = result.status;
+      });
+
+      stopButton.addEventListener("click", async () => {
+        stopButton.disabled = true;
+        startButton.disabled = false;
+        video.src = "";
+        video.classList.add("hidden");
+        statusDiv.textContent = "Posture monitoring stopped.";
+
+        await fetch("/stop_camera", { method: "POST" });
+      });
+
+      recalibrateButton.addEventListener("click", async () => {
+        statusDiv.textContent = "Recalibrating...";
+        const response = await fetch("/recalibrate", { method: "POST" });
+        const result = await response.json();
+        statusDiv.textContent = result.status;
+      });
+    </script>
+  </body>
+</html>
