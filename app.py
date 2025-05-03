@@ -5,12 +5,14 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import time
+import requests
 from flask import Flask, render_template, Response, jsonify
 
 app = Flask(__name__)
 app.config['PROPAGATE_EXCEPTIONS'] = False
 
-ip = ''
+# Set the ESP32 IP address here
+ip = '10.0.0.211'  # Replace with your ESP32's IP address
 
 # Initialize MediaPipe Pose and webcam
 mp_pose = mp.solutions.pose
@@ -27,23 +29,39 @@ neck_threshold = 0
 last_alert_time = 0
 alert_cooldown = 3  # seconds
 
-def MPU6050_alert():
-    # The external URL you want to send the GET request to
-    url = f"http://{ip}/alert"
-    
+def send_buzzer_on():
+    """Send request to turn buzzer on"""
     try:
-        # Send a GET request to the external URL
-        response = requests.get(url)
+        # The updated endpoint for turning the buzzer on
+        url = f"http://{ip}/buzzer-on"
+        
+        # Send a GET request to the ESP32
+        response = requests.get(url, timeout=1)
 
         # Check if the request was successful
         if response.status_code == 200:
-            print("Alert sent successfully.")
+            print("Buzzer ON signal sent successfully.")
         else:
-            print(f"Failed to send alert. Status code: {response.status_code}")
-    
+            print(f"Failed to send buzzer ON signal. Status code: {response.status_code}")
     except requests.exceptions.RequestException as e:
-        # Handle any exceptions that occur while sending the request
-        print(f"Error sending alert: {e}")
+        print(f"Error sending buzzer ON request: {e}")
+    
+def send_buzzer_off():
+    """Send request to turn buzzer off"""
+    try:
+        # The updated endpoint for turning the buzzer off
+        url = f"http://{ip}/buzzer-off"
+        
+        # Send a GET request to the ESP32
+        response = requests.get(url, timeout=1)
+
+        # Check if the request was successful
+        if response.status_code == 200:
+            print("Buzzer OFF signal sent successfully.")
+        else:
+            print(f"Failed to send buzzer OFF signal. Status code: {response.status_code}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending buzzer OFF request: {e}")
 
 def calculate_angle(a, b, c):
     # Calculate the angle between three points
@@ -63,6 +81,7 @@ def generate_frames():
     # Initialize webcam
     cap = cv2.VideoCapture(0)
     posture_status = "Good Posture"
+    current_posture_state = "good"  # Track current state to avoid unnecessary requests
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -98,10 +117,6 @@ def generate_frames():
             shoulder_angle = min(shoulder_angle_l, shoulder_angle_r)
             neck_angle = min(neck_angle_l, neck_angle_r)
 
-            # Optional: Forward head posture detection (normalized coordinates)
-            # normalized_displacement = abs(landmarks[mp_pose.PoseLandmark.LEFT_EAR.value].x -
-            #                                landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x)
-
             # Calibration logic
             if not is_calibrated and calibration_frames < 25:
                 calibration_shoulder_angles.append(shoulder_angle)
@@ -119,12 +134,22 @@ def generate_frames():
                 cv2.putText(frame, "⚠️ BAD POSTURE DETECTED", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
                 cv2.rectangle(frame, (20, 80), (460, 140), (0, 0, 255), -1)
                 cv2.putText(frame, "Please sit upright", (40, 120), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                
                 current_time = time.time()
                 if current_time - last_alert_time > alert_cooldown:
+                    # Only send buzzer on alert if we weren't already in a bad posture state
+                    if current_posture_state == "good" and ip:
+                        send_buzzer_on()
+                        current_posture_state = "bad"
                     last_alert_time = current_time
             else:
                 posture_status = "Good Posture"
                 cv2.putText(frame, "Good Posture", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+                
+                # Only send buzzer off if we were previously in a bad posture state
+                if current_posture_state == "bad" and ip:
+                    send_buzzer_off()
+                    current_posture_state = "good"
 
             # Draw pose landmarks and posture status
             mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
@@ -152,6 +177,13 @@ def video_feed():
 def index():
     return render_template('index.html')
 
+@app.route('/set_esp_ip', methods=['POST'])
+def set_esp_ip():
+    global ip
+    data = request.get_json()
+    ip = data.get('ip', '')
+    return jsonify({"status": "ESP32 IP set to " + ip})
+
 @app.route('/check_posture', methods=['POST'])
 def check_posture():
     # Placeholder to allow interaction with frontend (posture detection logic runs in background)
@@ -171,5 +203,23 @@ def stop_camera():
     # Let the frontend know camera can stop, actual release already handled inside generate_frames
     return jsonify({'status': 'Camera stopped'})
 
+@app.route('/manual_buzzer_on', methods=['POST'])
+def manual_buzzer_on():
+    if ip:
+        send_buzzer_on()
+        return jsonify({'status': 'Buzzer turned ON'})
+    else:
+        return jsonify({'status': 'Error: ESP32 IP not set'})
+
+@app.route('/manual_buzzer_off', methods=['POST'])
+def manual_buzzer_off():
+    if ip:
+        send_buzzer_off()
+        return jsonify({'status': 'Buzzer turned OFF'})
+    else:
+        return jsonify({'status': 'Error: ESP32 IP not set'})
+
 if __name__ == '__main__':
-    app.run(debug=False)
+    print("Starting posture monitoring application...")
+    print("Please set the ESP32 IP address in the web interface")
+    app.run(debug=False, host='0.0.0.0', port=5000)
